@@ -20,7 +20,6 @@ const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 const RECEIVER_EMAIL = process.env.RECEIVER_EMAIL;
-const RECAPTCHA_SECRET = process.env.RECAPTCHA_SECRET;
 
 // Basic pattern to verify that the email looks valid.
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -33,7 +32,7 @@ const contactRateLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     success: false,
-    error: "Too many requests, please try again later",
+    error: "Demasiadas solicitudes. Probá de nuevo en unos minutos",
   },
 });
 
@@ -47,38 +46,6 @@ const transporter = nodemailer.createTransport({
     pass: SMTP_PASS,
   },
 });
-
-// Verify reCAPTCHA token with Google's siteverify API.
-async function verifyRecaptcha(token) {
-  if (!RECAPTCHA_SECRET) {
-    console.error("Missing RECAPTCHA_SECRET in environment variables.");
-    return false;
-  }
-
-  try {
-    const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        secret: RECAPTCHA_SECRET,
-        response: token,
-      }).toString(),
-    });
-
-    if (!response.ok) {
-      console.error("reCAPTCHA verification request failed with status:", response.status);
-      return false;
-    }
-
-    const data = await response.json();
-    return data.success === true;
-  } catch (error) {
-    console.error("Error while verifying reCAPTCHA:", error);
-    return false;
-  }
-}
 
 // Basic sanitization to reduce simple injection and malformed input risks.
 function sanitizeText(value) {
@@ -99,8 +66,9 @@ function sanitizeContactInput(req, res, next) {
 
   req.body.name = sanitizeText(req.body.name);
   req.body.email = sanitizeText(req.body.email).toLowerCase();
+  req.body.telefono = sanitizeText(req.body.telefono);
+  req.body.ciudad = sanitizeText(req.body.ciudad);
   req.body.message = sanitizeText(req.body.message);
-  req.body.token = sanitizeText(req.body.token);
 
   next();
 }
@@ -126,66 +94,67 @@ app.get("/api/health", (req, res) => {
 // Contact endpoint that validates payload and sends an email via SMTP.
 app.post("/api/contact", contactRateLimiter, sanitizeContactInput, async (req, res) => {
   try {
-    const { name, email, message, token } = req.body;
+    const { name, email, telefono, ciudad, message } = req.body;
 
-    if (!name || !email || !message || !token) {
+    if (!name || !email || !telefono || !message) {
       return res.status(400).json({
         success: false,
-        error: "name, email, message, and token are required",
+        error: "Los campos nombre, email, teléfono y mensaje son obligatorios",
       });
     }
 
     if (!EMAIL_REGEX.test(email)) {
       return res.status(400).json({
         success: false,
-        error: "invalid email format",
-      });
-    }
-
-    const isCaptchaValid = await verifyRecaptcha(token);
-    if (!isCaptchaValid) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid captcha",
+        error: "El formato del email no es válido",
       });
     }
 
     if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !RECEIVER_EMAIL) {
-      console.error("Missing SMTP configuration in environment variables.");
+      console.error("Falta configuración SMTP en las variables de entorno.");
       return res.status(500).json({
         success: false,
-        error: "email service is not configured",
+        error: "El servicio de correo no está configurado",
       });
     }
 
     await transporter.sendMail({
-      from: `Contact Form <${SMTP_USER}>`,
+      from: `Formulario de contacto <${SMTP_USER}>`,
       to: RECEIVER_EMAIL,
       replyTo: email,
-      subject: `New contact message from ${name}`,
-      text: `Name: ${name}\nEmail: ${email}\n\nMessage:\n${message}`,
+      subject: `Nuevo mensaje de contacto de ${name}`,
+      text: `Nombre: ${name}\nEmail: ${email}\nTeléfono: ${telefono}\nCiudad: ${ciudad || "No especificada"}\n\nMensaje:\n${message}`,
     });
 
     return res.json({ success: true });
   } catch (error) {
-    console.error("Failed to send contact email:", error);
+    console.error("No se pudo enviar el correo de contacto:", error);
     return res.status(500).json({
       success: false,
-      error: "failed to send email",
+      error: "No se pudo enviar el correo",
     });
   }
 });
 
 // Last-resort error handler for unexpected server errors.
 app.use((error, req, res, next) => {
-  console.error("Unhandled server error:", error);
+  console.error("Error no controlado del servidor:", error);
   res.status(500).json({
     success: false,
-    error: "internal server error",
+    error: "Error interno del servidor",
   });
 });
 
 // Start the server and listen on the configured port.
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+
+  transporter.verify((error) => {
+    if (error) {
+      console.error("Falló la conexión SMTP:", error.message);
+      return;
+    }
+
+    console.log("Conexión SMTP verificada.");
+  });
 });
