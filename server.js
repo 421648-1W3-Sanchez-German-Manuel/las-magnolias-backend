@@ -76,7 +76,7 @@ function sanitizeContactInput(req, res, next) {
 // Enable CORS so the frontend app can call this API from the browser.
 app.use(
   cors({
-    origin: FRONTEND_ORIGIN,
+    origin: "*",
   })
 );
 
