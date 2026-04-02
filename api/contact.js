@@ -185,6 +185,18 @@ async function handleContact(req, res) {
 app.post("/api/contact", contactRateLimiter, sanitizePayload, handleContact);
 // Vercel may invoke this function with stripped path depending on routing setup.
 app.post("/", contactRateLimiter, sanitizePayload, handleContact);
+app.get("/api/contact", (req, res) => {
+  return res.status(200).json({
+    success: true,
+    message: "Endpoint activo. Usa POST para enviar el formulario.",
+  });
+});
+app.get("/", (req, res) => {
+  return res.status(200).json({
+    success: true,
+    message: "API activa. Usa POST /api/contact.",
+  });
+});
 
 app.use((err, req, res, next) => {
   if (err && err.message === "CORS origin not allowed") {
@@ -205,7 +217,8 @@ app.use((err, req, res, next) => {
   });
 });
 
-const handler = serverless(app);
+const lambdaHandler = serverless(app);
 
-export { handler };
-export default handler;
+// Keep lambda-compatible export while using Express req/res for Vercel runtime.
+export { lambdaHandler as handler };
+export default app;
