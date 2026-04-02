@@ -1,22 +1,18 @@
 # Las Magnolias Backend
 
-Minimal Node.js + Express backend for a contact form.
+Node.js + Express backend preparado para Vercel Serverless Functions.
 
 ## What this backend does
 
-- Exposes a health endpoint to check server status.
 - Exposes a contact endpoint that:
-  - validates input (`name`, `email`, `message`, `token`)
-  - verifies Google reCAPTCHA token
+  - validates input (`name`, `email`, `telefono`, `ciudad`, `message`)
   - rate-limits requests (5 per minute per IP)
   - sanitizes incoming text fields
+  - applies strict CORS allowlist + preflight handling
   - sends emails using SMTP (Nodemailer)
 - Adds common HTTP security headers using Helmet.
 
 ## Endpoints
-
-- `GET /api/health`
-  - Response: `{ "status": "ok" }`
 
 - `POST /api/contact`
   - Body:
@@ -24,31 +20,39 @@ Minimal Node.js + Express backend for a contact form.
     {
       "name": "John Doe",
       "email": "john@example.com",
-      "message": "Hello!",
-      "token": "recaptcha_token"
+      "telefono": "+54 9 11 1234 5678",
+      "ciudad": "Buenos Aires",
+      "message": "Hola!"
     }
     ```
   - Success: `{ "success": true }`
   - Error: `{ "success": false, "error": "message" }`
 
+- `OPTIONS /api/contact`
+  - Maneja preflight CORS.
+
 ## Environment variables
 
 Create or update `.env` with:
 
-- `PORT` (default: `4000`)
-- `FRONTEND_ORIGIN` (example: `http://localhost:3000`)
 - `SMTP_HOST`
 - `SMTP_PORT`
 - `SMTP_USER`
 - `SMTP_PASS`
 - `RECEIVER_EMAIL`
-- `RECAPTCHA_SECRET`
+
+Allowed origins are fixed in the API implementation:
+
+- `http://localhost:3000`
+- `http://127.0.0.1:5500`
+- `https://www.lasmagnolias.com.ar`
+- `https://lasmagnolias.com.ar`
 
 ## Run locally
 
 1. Install dependencies:
    `npm install`
-2. Start server:
-   `npm start`
+2. Run locally:
+  `npm start`
 
-Server runs on `http://localhost:4000` by default.
+For Vercel deployment, use the serverless function in `api/contact.js`.
