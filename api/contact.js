@@ -19,6 +19,44 @@ const ALLOWED_ORIGINS = [
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify";
+const RECAPTCHA_MIN_SCORE = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5);
+const RECAPTCHA_EXPECTED_ACTION = "contact_submit";
+
+async function verifyRecaptcha(token, remoteIp) {
+  const secret = process.env.RECAPTCHA_SECRET_KEY;
+  if (!secret) {
+    console.error("RECAPTCHA_SECRET_KEY missing");
+    return { ok: false, reason: "config" };
+  }
+  if (!token || typeof token !== "string") {
+    return { ok: false, reason: "missing_token" };
+  }
+
+  const params = new URLSearchParams({ secret, response: token });
+  if (remoteIp) params.append("remoteip", remoteIp);
+
+  try {
+    const resp = await fetch(RECAPTCHA_VERIFY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+    const data = await resp.json();
+    if (!data.success) return { ok: false, reason: "not_success", data };
+    if (data.action && data.action !== RECAPTCHA_EXPECTED_ACTION) {
+      return { ok: false, reason: "wrong_action", data };
+    }
+    if (typeof data.score === "number" && data.score < RECAPTCHA_MIN_SCORE) {
+      return { ok: false, reason: "low_score", data };
+    }
+    return { ok: true, data };
+  } catch (err) {
+    console.error("reCAPTCHA verify error", { message: err?.message });
+    return { ok: false, reason: "network" };
+  }
+}
+
 let transporter;
 
 function sanitizeText(value) {
@@ -126,6 +164,19 @@ app.use(express.json({ limit: "100kb" }));
 async function handleContact(req, res) {
   try {
     const { name, email, telefono, ciudad, message } = req.body || {};
+    const recaptchaToken = req.body?.recaptchaToken;
+    const remoteIp =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket?.remoteAddress;
+
+    const verification = await verifyRecaptcha(recaptchaToken, remoteIp);
+    if (!verification.ok) {
+      console.warn("reCAPTCHA rejected", { reason: verification.reason });
+      return res.status(400).json({
+        success: false,
+        error: "No pudimos verificar la solicitud. Intentá de nuevo.",
+      });
+    }
 
     if (!name || !email || !telefono || !message) {
       return res.status(400).json({
